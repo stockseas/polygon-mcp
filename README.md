@@ -1,6 +1,6 @@
-# mcp-polygon MCP server
+# mcp_polygon MCP server
 
-A MCP server project
+A MCP server project that provides access to Polygon.io financial market data through the MCP protocol.
 
 ## Components
 
@@ -19,14 +19,45 @@ The server provides a single prompt:
 
 ### Tools
 
-The server implements one tool:
-- add-note: Adds a new note to the server
-  - Takes "name" and "content" as required string arguments
-  - Updates server state and notifies clients of resource changes
+The server implements the following tools:
+
+1. Note Management:
+   - add-note: Adds a new note to the server
+     - Takes "name" and "content" as required string arguments
+     - Updates server state and notifies clients of resource changes
+
+2. Polygon.io Financial Data:
+   - get-aggs: Gets aggregated stock data for a time period
+     - Required parameters:
+       - ticker: Stock ticker symbol (e.g., AAPL)
+       - from_date: Start date in YYYY-MM-DD format
+       - to_date: End date in YYYY-MM-DD format
+     - Optional parameters:
+       - multiplier: Size of the timespan multiplier (default: 1)
+       - timespan: Size of the time window (minute, hour, day, week, month, quarter, year) (default: day)
+       - limit: Number of results to return (default: 10)
+
+   - get-trades: Gets historical trade data for a ticker on a specific date
+     - Required parameters:
+       - ticker: Stock ticker symbol (e.g., AAPL)
+       - date: Date for trades in YYYY-MM-DD format
+     - Optional parameters:
+       - timestamp: Timestamp in Unix milliseconds format (default: 0)
+       - limit: Number of results to return (default: 10)
 
 ## Configuration
 
-[TODO: Add configuration details specific to your implementation]
+### Environment Variables
+
+The following environment variables must be set for the server to function properly:
+
+- `POLYGON_API_KEY`: Your Polygon.io API key
+
+You can set this environment variable before running the server:
+
+```bash
+export POLYGON_API_KEY="your_polygon_api_key_here"
+```
 
 ## Quickstart
 
@@ -41,13 +72,13 @@ On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
   <summary>Development/Unpublished Servers Configuration</summary>
   ```
   "mcpServers": {
-    "mcp-polygon": {
+    "mcp_polygon": {
       "command": "uv",
       "args": [
         "--directory",
-        "/path/to/mcp-polygon",
+        "/path/to/mcp_polygon",
         "run",
-        "mcp-polygon"
+        "mcp_polygon"
       ]
     }
   }
@@ -58,10 +89,10 @@ On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
   <summary>Published Servers Configuration</summary>
   ```
   "mcpServers": {
-    "mcp-polygon": {
+    "mcp_polygon": {
       "command": "uvx",
       "args": [
-        "mcp-polygon"
+        "mcp_polygon"
       ]
     }
   }
@@ -104,7 +135,7 @@ experience, we strongly recommend using the [MCP Inspector](https://github.com/m
 You can launch the MCP Inspector via [`npm`](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) with this command:
 
 ```bash
-npx @modelcontextprotocol/inspector uv --directory /path/to/mcp-polygon run mcp-polygon
+npx @modelcontextprotocol/inspector uv --directory /path/to/mcp_polygon run mcp_polygon
 ```
 
 
