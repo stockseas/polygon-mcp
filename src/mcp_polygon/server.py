@@ -135,11 +135,11 @@ async def handle_list_tools() -> list[types.Tool]:
                         "enum": ["minute", "hour", "day", "week", "month", "quarter", "year"],
                         "default": "day"
                     },
-                    "from_date": {"type": "string", "description": "From date in YYYY-MM-DD format"},
-                    "to_date": {"type": "string", "description": "To date in YYYY-MM-DD format"},
+                    "from": {"type": "string", "description": "From date in YYYY-MM-DD format"},
+                    "to": {"type": "string", "description": "To date in YYYY-MM-DD format"},
                     "limit": {"type": "integer", "description": "Limit of results returned", "default": 10},
                 },
-                "required": ["ticker", "from_date", "to_date"],
+                "required": ["ticker", "from", "to"],
             },
         ),
         types.Tool(
@@ -149,11 +149,14 @@ async def handle_list_tools() -> list[types.Tool]:
                 "type": "object",
                 "properties": {
                     "ticker": {"type": "string", "description": "Stock ticker symbol (e.g., AAPL)"},
-                    "date": {"type": "string", "description": "Date for the trades in YYYY-MM-DD format"},
-                    "timestamp": {"type": "integer", "description": "Timestamp in Unix milliseconds format", "default": 0},
-                    "limit": {"type": "integer", "description": "Limit of results returned", "default": 10},
+                    "limit": {"type": "integer", "description": "Limit of results returned", "default": 100},
+                    "timestamp.gte": {"type": "string", "description": "Greater than or equal to timestamp"},
+                    "timestamp.gt": {"type": "string", "description": "Greater than timestamp"},
+                    "timestamp.lte": {"type": "string", "description": "Less than or equal to timestamp"},
+                    "timestamp.lt": {"type": "string", "description": "Less than timestamp"},
+                    "sort": {"type": "string", "description": "Sort order", "enum": ["asc", "desc"], "default": "asc"},
                 },
-                "required": ["ticker", "date"],
+                "required": ["ticker"],
             },
         )
     ]
@@ -211,10 +214,10 @@ async def handle_get_aggs(arguments: dict) -> list[types.TextContent]:
     from_ = arguments.get("from")
     to = arguments.get("to")
     limit = arguments.get("limit", 10)
-    
+
     if not ticker or not from_ or not to or not timespan or not multiplier:
         raise ValueError("Missing required parameters: ticker, from_, or to")
-    
+
     try:
         # Call Polygon API
         results = polygon_client.get_aggs(
@@ -226,20 +229,17 @@ async def handle_get_aggs(arguments: dict) -> list[types.TextContent]:
             limit=limit
         )
 
-        response_text = f"Aggregated data for {ticker} from {from_} to {to}:\n\n"
+        response_text = f"Agg data for {ticker} from {from_} to {to}:\n\n"
         response_text += f"Found {len(results)} results\n\n"
-        
+
         # Include the first few results in the text response
         if results:
-            for i, result in enumerate(results[:5]):
-                response_text += f"Entry {i+1}:\n"
-                for key, value in result.items():
-                    if value is not None:
-                        response_text += f"  {key}: {value}\n"
-                response_text += "\n"
-            
-            if len(results) > 5:
-                response_text += f"...and {len(results) - 5} more entries."
+            for i, result in enumerate(results):
+                if i >= limit:
+                    break
+
+                response_text += f"{result}\n"
+
         else:
             response_text += "No results found."
         
@@ -301,7 +301,7 @@ async def handle_list_trades(arguments: dict) -> list[types.TextContent]:
             for i, result in enumerate(results):
                 if i >= limit:
                     break
-                response_text += f"Trade {i+1}:\n {result}\n"
+                response_text += f"{result}\n"
 
         else:
             response_text += "No trade data found."
