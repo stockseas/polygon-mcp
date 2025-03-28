@@ -1,12 +1,9 @@
-import asyncio
 import os
-from datetime import datetime, date
-from typing import Optional, List, Dict, Any, Union
 
 from mcp.server.models import InitializationOptions
 import mcp.types as types
 from mcp.server import NotificationOptions, Server
-from pydantic import AnyUrl, BaseModel, Field
+from pydantic import AnyUrl
 import mcp.server.stdio
 from polygon import RESTClient
 
