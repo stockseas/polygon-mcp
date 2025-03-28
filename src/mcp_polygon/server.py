@@ -211,39 +211,25 @@ async def handle_get_aggs(arguments: dict) -> list[types.TextContent]:
     ticker = arguments.get("ticker")
     multiplier = arguments.get("multiplier", 1)
     timespan = arguments.get("timespan", "day")
-    from_date = arguments.get("from_date")
-    to_date = arguments.get("to_date")
+    from_ = arguments.get("from")
+    to = arguments.get("to")
     limit = arguments.get("limit", 10)
     
-    if not ticker or not from_date or not to_date:
-        raise ValueError("Missing required parameters: ticker, from_date, or to_date")
+    if not ticker or not from_ or not to or not timespan or not multiplier:
+        raise ValueError("Missing required parameters: ticker, from_, or to")
     
     try:
         # Call Polygon API
-        aggs = polygon_client.get_aggs(
+        results = polygon_client.get_aggs(
             ticker=ticker,
             multiplier=multiplier,
             timespan=timespan,
-            from_=from_date,
-            to=to_date,
+            from_=from_,
+            to=to,
             limit=limit
         )
-        
-        # Format response
-        results = []
-        for agg in aggs:
-            results.append({
-                "timestamp": agg.timestamp,
-                "open": agg.open,
-                "high": agg.high,
-                "low": agg.low,
-                "close": agg.close,
-                "volume": agg.volume,
-                "vwap": getattr(agg, 'vwap', None),
-                "transactions": getattr(agg, 'transactions', None)
-            })
-        
-        response_text = f"Aggregated data for {ticker} from {from_date} to {to_date}:\n\n"
+
+        response_text = f"Aggregated data for {ticker} from {from_} to {to}:\n\n"
         response_text += f"Found {len(results)} results\n\n"
         
         # Include the first few results in the text response
@@ -274,7 +260,7 @@ async def handle_get_aggs(arguments: dict) -> list[types.TextContent]:
             )
         ]
 
-async def handle_get_trades(arguments: dict) -> list[types.TextContent]:
+async def handle_list_trades(arguments: dict) -> list[types.TextContent]:
     """
     Get historical trade data from Polygon API.
     
@@ -293,54 +279,33 @@ async def handle_get_trades(arguments: dict) -> list[types.TextContent]:
         ]
 
     ticker = arguments.get("ticker")
-    date_str = arguments.get("date")
-    timestamp = arguments.get("timestamp", 0)
-    limit = arguments.get("limit", 10)
     
-    if not ticker or not date_str:
+    if not ticker:
         raise ValueError("Missing required parameters: ticker or date")
     
+    limit = arguments.get("limit", 100)
     try:
         # Call Polygon API
-        trades = polygon_client.get_trades(
+        results = polygon_client.list_trades(
             ticker=ticker,
-            timestamp=timestamp,
+            timestamp_gte=arguments.get("timestamp.gte", None),
+            timestamp_gt=arguments.get("timestamp.gt", None),
+            timestamp_lte=arguments.get("timestamp.lte", None),
+            timestamp_lt=arguments.get("timestamp.lt", None),
             order="asc",
+            sort=arguments.get("sort", "asc"),
             limit=limit,
-            timestamp_lt=None, 
-            timestamp_lte=None,
-            timestamp_gt=None,
-            timestamp_gte=None,
-            date=date_str
         )
         
-        # Format response
-        results = []
-        for trade in trades:
-            results.append({
-                "transaction_id": getattr(trade, 'transaction_id', None),
-                "exchange": getattr(trade, 'exchange', None),
-                "price": getattr(trade, 'price', None),
-                "size": getattr(trade, 'size', None),
-                "conditions": getattr(trade, 'conditions', None),
-                "timestamp": getattr(trade, 'timestamp', None),
-                "tape": getattr(trade, 'tape', None)
-            })
-        
-        response_text = f"Trade data for {ticker} on {date_str}:\n\n"
-        response_text += f"Found {len(results)} trades\n\n"
-        
+        response_text = f"Trade data for {ticker}:\n\n"
+
         # Include the first few results in the text response
         if results:
-            for i, result in enumerate(results[:5]):
-                response_text += f"Trade {i+1}:\n"
-                for key, value in result.items():
-                    if value is not None:
-                        response_text += f"  {key}: {value}\n"
-                response_text += "\n"
-            
-            if len(results) > 5:
-                response_text += f"...and {len(results) - 5} more trades."
+            for i, result in enumerate(results):
+                if i >= limit:
+                    break
+                response_text += f"Trade {i+1}:\n {result}\n"
+
         else:
             response_text += "No trade data found."
         
@@ -375,7 +340,7 @@ async def handle_call_tool(
     elif name == "get-aggs":
         return await handle_get_aggs(arguments)
     elif name == "get-trades":
-        return await handle_get_trades(arguments)
+        return await handle_list_trades(arguments)
     else:
         raise ValueError(f"Unknown tool: {name}")
 
