@@ -1,358 +1,795 @@
 import os
-
-from mcp.server.models import InitializationOptions
-import mcp.types as types
-from mcp.server import NotificationOptions, Server
-from pydantic import AnyUrl
-import mcp.server.stdio
+import json
+import asyncio
+from typing import Optional, Any, Dict, Union, List
+from mcp.server.fastmcp import FastMCP
 from polygon import RESTClient
 
-# Get API key from environment variables
+from datetime import datetime, date
+
 POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "")
 if not POLYGON_API_KEY:
     print("Warning: POLYGON_API_KEY environment variable not set.")
 
-# Initialize Polygon client
 polygon_client = RESTClient(POLYGON_API_KEY)
 
-# Store notes as a simple key-value dict to demonstrate state management
-notes: dict[str, str] = {}
+poly_mcp = FastMCP("Polygon", dependencies=["polygon"])
 
-server = Server("mcp_polygon")
-
-@server.list_resources()
-async def handle_list_resources() -> list[types.Resource]:
+@poly_mcp.tool()
+async def get_aggs(
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_: Union[str, int, datetime, date],
+        to: Union[str, int, datetime, date],
+        adjusted: Optional[bool] = None,
+        sort: Optional[str] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
     """
-    List available note resources.
-    Each note is exposed as a resource with a custom note:// URI scheme.
+    List aggregate bars for a ticker over a given date range in custom time window sizes.
     """
-    return [
-        types.Resource(
-            uri=AnyUrl(f"note://internal/{name}"),
-            name=f"Note: {name}",
-            description=f"A simple note named {name}",
-            mimeType="text/plain",
-        )
-        for name in notes
-    ]
-
-@server.read_resource()
-async def handle_read_resource(uri: AnyUrl) -> str:
-    """
-    Read a specific note's content by its URI.
-    The note name is extracted from the URI host component.
-    """
-    if uri.scheme != "note":
-        raise ValueError(f"Unsupported URI scheme: {uri.scheme}")
-
-    name = uri.path
-    if name is not None:
-        name = name.lstrip("/")
-        return notes[name]
-    raise ValueError(f"Note not found: {name}")
-
-@server.list_prompts()
-async def handle_list_prompts() -> list[types.Prompt]:
-    """
-    List available prompts.
-    Each prompt can have optional arguments to customize its behavior.
-    """
-    return [
-        types.Prompt(
-            name="summarize-notes",
-            description="Creates a summary of all notes",
-            arguments=[
-                types.PromptArgument(
-                    name="style",
-                    description="Style of the summary (brief/detailed)",
-                    required=False,
-                )
-            ],
-        )
-    ]
-
-@server.get_prompt()
-async def handle_get_prompt(
-    name: str, arguments: dict[str, str] | None
-) -> types.GetPromptResult:
-    """
-    Generate a prompt by combining arguments with server state.
-    The prompt includes all current notes and can be customized via arguments.
-    """
-    if name != "summarize-notes":
-        raise ValueError(f"Unknown prompt: {name}")
-
-    style = (arguments or {}).get("style", "brief")
-    detail_prompt = " Give extensive details." if style == "detailed" else ""
-
-    return types.GetPromptResult(
-        description="Summarize the current notes",
-        messages=[
-            types.PromptMessage(
-                role="user",
-                content=types.TextContent(
-                    type="text",
-                    text=f"Here are the current notes to summarize:{detail_prompt}\n\n"
-                    + "\n".join(
-                        f"- {name}: {content}"
-                        for name, content in notes.items()
-                    ),
-                ),
-            )
-        ],
-    )
-
-@server.list_tools()
-async def handle_list_tools() -> list[types.Tool]:
-    """
-    List available tools.
-    Each tool specifies its arguments using JSON Schema validation.
-    """
-    return [
-        types.Tool(
-            name="add-note",
-            description="Add a new note",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["name", "content"],
-            },
-        ),
-        types.Tool(
-            name="get-aggs",
-            description="Get aggregated stock data from Polygon.io",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "ticker": {"type": "string", "description": "Stock ticker symbol (e.g., AAPL)"},
-                    "multiplier": {"type": "integer", "description": "Size of the timespan multiplier", "default": 1},
-                    "timespan": {
-                        "type": "string", 
-                        "description": "Size of the time window", 
-                        "enum": ["minute", "hour", "day", "week", "month", "quarter", "year"],
-                        "default": "day"
-                    },
-                    "from": {"type": "string", "description": "From date in YYYY-MM-DD format"},
-                    "to": {"type": "string", "description": "To date in YYYY-MM-DD format"},
-                    "limit": {"type": "integer", "description": "Limit of results returned", "default": 10},
-                },
-                "required": ["ticker", "from", "to"],
-            },
-        ),
-        types.Tool(
-            name="get-trades",
-            description="Get historical trades for a ticker from Polygon.io",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "ticker": {"type": "string", "description": "Stock ticker symbol (e.g., AAPL)"},
-                    "limit": {"type": "integer", "description": "Limit of results returned", "default": 100},
-                    "timestamp.gte": {"type": "string", "description": "Greater than or equal to timestamp"},
-                    "timestamp.gt": {"type": "string", "description": "Greater than timestamp"},
-                    "timestamp.lte": {"type": "string", "description": "Less than or equal to timestamp"},
-                    "timestamp.lt": {"type": "string", "description": "Less than timestamp"},
-                    "sort": {"type": "string", "description": "Sort order", "enum": ["asc", "desc"], "default": "asc"},
-                },
-                "required": ["ticker"],
-            },
-        )
-    ]
-
-async def handle_add_note(arguments: dict) -> list[types.TextContent]:
-    """
-    Add a new note to the server.
-    
-    Args:
-        arguments: Dictionary containing note name and content
-        
-    Returns:
-        List of TextContent with operation result
-    """
-    note_name = arguments.get("name")
-    content = arguments.get("content")
-
-    if not note_name or not content:
-        raise ValueError("Missing name or content")
-
-    # Update server state
-    notes[note_name] = content
-
-    # Notify clients that resources have changed
-    await server.request_context.session.send_resource_list_changed()
-
-    return [
-        types.TextContent(
-            type="text",
-            text=f"Added note '{note_name}' with content: {content}",
-        )
-    ]
-
-async def handle_get_aggs(arguments: dict) -> list[types.TextContent]:
-    """
-    Get aggregated stock data from Polygon API.
-    
-    Args:
-        arguments: Dictionary containing query parameters
-        
-    Returns:
-        List of TextContent with aggregated data or error message
-    """
-    if not POLYGON_API_KEY:
-        return [
-            types.TextContent(
-                type="text",
-                text="Error: Polygon API key not set. Please set the POLYGON_API_KEY environment variable."
-            )
-        ]
-
-    ticker = arguments.get("ticker")
-    multiplier = arguments.get("multiplier", 1)
-    timespan = arguments.get("timespan", "day")
-    from_ = arguments.get("from")
-    to = arguments.get("to")
-    limit = arguments.get("limit", 10)
-
-    if not ticker or not from_ or not to or not timespan or not multiplier:
-        raise ValueError("Missing required parameters: ticker, from_, or to")
-
     try:
-        # Call Polygon API
         results = polygon_client.get_aggs(
             ticker=ticker,
             multiplier=multiplier,
             timespan=timespan,
             from_=from_,
             to=to,
-            limit=limit
+            adjusted=adjusted,
+            sort=sort,
+            limit=limit,
+            params=params,
+            raw=True
         )
-
-        response_text = f"Agg data for {ticker} from {from_} to {to}:\n\n"
-        response_text += f"Found {len(results)} results\n\n"
-
-        # Include the first few results in the text response
-        if results:
-            for i, result in enumerate(results):
-                if i >= limit:
-                    break
-
-                response_text += f"{result}\n"
-
-        else:
-            response_text += "No results found."
         
-        return [
-            types.TextContent(
-                type="text",
-                text=response_text
-            )
-        ]
+        # Parse the binary data to string and then to JSON
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
     except Exception as e:
-        return [
-            types.TextContent(
-                type="text",
-                text=f"Error fetching aggregated data: {str(e)}"
-            )
-        ]
+        return {"error": str(e)}
 
-async def handle_list_trades(arguments: dict) -> list[types.TextContent]:
+@poly_mcp.tool()
+async def list_aggs(
+        ticker: str,
+        multiplier: int,
+        timespan: str,
+        from_: Union[str, int, datetime, date],
+        to: Union[str, int, datetime, date],
+        adjusted: Optional[bool] = None,
+        sort: Optional[str] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
     """
-    Get historical trade data from Polygon API.
-    
-    Args:
-        arguments: Dictionary containing query parameters
-        
-    Returns:
-        List of TextContent with trade data or error message
+    Iterate through aggregate bars for a ticker over a given date range.
     """
-    if not POLYGON_API_KEY:
-        return [
-            types.TextContent(
-                type="text",
-                text="Error: Polygon API key not set. Please set the POLYGON_API_KEY environment variable."
-            )
-        ]
-
-    ticker = arguments.get("ticker")
-    
-    if not ticker:
-        raise ValueError("Missing required parameters: ticker or date")
-    
-    limit = arguments.get("limit", 100)
     try:
-        # Call Polygon API
+        results = polygon_client.list_aggs(
+            ticker=ticker,
+            multiplier=multiplier,
+            timespan=timespan,
+            from_=from_,
+            to=to,
+            adjusted=adjusted,
+            sort=sort,
+            limit=limit,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_grouped_daily_aggs(
+        date: str,
+        adjusted: Optional[bool] = None,
+        include_otc: Optional[bool] = None,
+        locale: Optional[str] = None,
+        market_type: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get grouped daily bars for entire market for a specific date.
+    """
+    try:
+        results = polygon_client.get_grouped_daily_aggs(
+            date=date,
+            adjusted=adjusted,
+            include_otc=include_otc,
+            locale=locale,
+            market_type=market_type,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_daily_open_close_agg(
+        ticker: str,
+        date: str,
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get daily open, close, high, and low for a specific ticker and date.
+    """
+    try:
+        results = polygon_client.get_daily_open_close_agg(
+            ticker=ticker,
+            date=date,
+            adjusted=adjusted,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_previous_close_agg(
+        ticker: str,
+        adjusted: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get previous day's open, close, high, and low for a specific ticker.
+    """
+    try:
+        results = polygon_client.get_previous_close_agg(
+            ticker=ticker,
+            adjusted=adjusted,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_trades(
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get trades for a ticker symbol.
+    """
+    try:
         results = polygon_client.list_trades(
             ticker=ticker,
-            timestamp_gte=arguments.get("timestamp.gte", None),
-            timestamp_gt=arguments.get("timestamp.gt", None),
-            timestamp_lte=arguments.get("timestamp.lte", None),
-            timestamp_lt=arguments.get("timestamp.lt", None),
-            order="asc",
-            sort=arguments.get("sort", "asc"),
+            timestamp=timestamp,
+            timestamp_lt=timestamp_lt,
+            timestamp_lte=timestamp_lte,
+            timestamp_gt=timestamp_gt,
+            timestamp_gte=timestamp_gte,
             limit=limit,
+            sort=sort,
+            order=order,
+            params=params,
+            raw=True
         )
         
-        response_text = f"Trade data for {ticker}:\n\n"
-
-        # Include the first few results in the text response
-        if results:
-            for i, result in enumerate(results):
-                if i >= limit:
-                    break
-                response_text += f"{result}\n"
-
-        else:
-            response_text += "No trade data found."
-        
-        return [
-            types.TextContent(
-                type="text",
-                text=response_text
-            )
-        ]
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
     except Exception as e:
-        return [
-            types.TextContent(
-                type="text",
-                text=f"Error fetching trade data: {str(e)}"
-            )
-        ]
+        return {"error": str(e)}
 
-@server.call_tool()
-async def handle_call_tool(
-    name: str, arguments: dict | None
-) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
+@poly_mcp.tool()
+async def get_last_trade(
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
     """
-    Handle tool execution requests.
-    Dispatches to appropriate handler function based on tool name.
+    Get the most recent trade for a ticker symbol.
     """
-    if not arguments:
-        raise ValueError("Missing arguments")
-
-    # Dispatch to the appropriate handler based on tool name
-    if name == "add-note":
-        return await handle_add_note(arguments)
-    elif name == "get-aggs":
-        return await handle_get_aggs(arguments)
-    elif name == "get-trades":
-        return await handle_list_trades(arguments)
-    else:
-        raise ValueError(f"Unknown tool: {name}")
-
-async def main():
-    # Run the server using stdin/stdout streams
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="mcp_polygon",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
+    try:
+        results = polygon_client.get_last_trade(
+            ticker=ticker,
+            params=params,
+            raw=True
         )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_last_crypto_trade(
+        from_: str,
+        to: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get the most recent trade for a crypto pair.
+    """
+    try:
+        results = polygon_client.get_last_crypto_trade(
+            from_=from_,
+            to=to,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_quotes(
+        ticker: str,
+        timestamp: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_lte: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gt: Optional[Union[str, int, datetime, date]] = None,
+        timestamp_gte: Optional[Union[str, int, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get quotes for a ticker symbol.
+    """
+    try:
+        results = polygon_client.list_quotes(
+            ticker=ticker,
+            timestamp=timestamp,
+            timestamp_lt=timestamp_lt,
+            timestamp_lte=timestamp_lte,
+            timestamp_gt=timestamp_gt,
+            timestamp_gte=timestamp_gte,
+            limit=limit,
+            sort=sort,
+            order=order,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_last_quote(
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get the most recent quote for a ticker symbol.
+    """
+    try:
+        results = polygon_client.get_last_quote(
+            ticker=ticker,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_last_forex_quote(
+        from_: str,
+        to: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get the most recent forex quote.
+    """
+    try:
+        results = polygon_client.get_last_forex_quote(
+            from_=from_,
+            to=to,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_real_time_currency_conversion(
+        from_: str,
+        to: str,
+        amount: Optional[float] = None,
+        precision: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get real-time currency conversion.
+    """
+    try:
+        results = polygon_client.get_real_time_currency_conversion(
+            from_=from_,
+            to=to,
+            amount=amount,
+            precision=precision,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_universal_snapshots(
+        type: str,
+        ticker_any_of: Optional[List[str]] = None,
+        order: Optional[str] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get universal snapshots for multiple assets of a specific type.
+    """
+    try:
+        results = polygon_client.list_universal_snapshots(
+            type=type,
+            ticker_any_of=ticker_any_of,
+            order=order,
+            limit=limit,
+            sort=sort,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_snapshot_all(
+        market_type: str,
+        tickers: Optional[List[str]] = None,
+        include_otc: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get a snapshot of all tickers in a market.
+    """
+    try:
+        results = polygon_client.get_snapshot_all(
+            market_type=market_type,
+            tickers=tickers,
+            include_otc=include_otc,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_snapshot_direction(
+        market_type: str,
+        direction: str,
+        include_otc: Optional[bool] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get gainers or losers for a market.
+    """
+    try:
+        results = polygon_client.get_snapshot_direction(
+            market_type=market_type,
+            direction=direction,
+            include_otc=include_otc,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_snapshot_ticker(
+        market_type: str,
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get snapshot for a specific ticker.
+    """
+    try:
+        results = polygon_client.get_snapshot_ticker(
+            market_type=market_type,
+            ticker=ticker,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_snapshot_option(
+        underlying_asset: str,
+        option_contract: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get snapshot for a specific option contract.
+    """
+    try:
+        results = polygon_client.get_snapshot_option(
+            underlying_asset=underlying_asset,
+            option_contract=option_contract,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_snapshot_crypto_book(
+        ticker: str,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get snapshot for a crypto ticker's order book.
+    """
+    try:
+        results = polygon_client.get_snapshot_crypto_book(
+            ticker=ticker,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_market_holidays(
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get upcoming market holidays and their open/close times.
+    """
+    try:
+        results = polygon_client.get_market_holidays(
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_market_status(
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get current trading status of exchanges and financial markets.
+    """
+    try:
+        results = polygon_client.get_market_status(
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_tickers(
+        ticker: Optional[str] = None,
+        type: Optional[str] = None,
+        market: Optional[str] = None,
+        exchange: Optional[str] = None,
+        cusip: Optional[str] = None,
+        cik: Optional[str] = None,
+        date: Optional[Union[str, datetime, date]] = None,
+        search: Optional[str] = None,
+        active: Optional[bool] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Query supported ticker symbols across stocks, indices, forex, and crypto.
+    """
+    try:
+        results = polygon_client.list_tickers(
+            ticker=ticker,
+            type=type,
+            market=market,
+            exchange=exchange,
+            cusip=cusip,
+            cik=cik,
+            date=date,
+            search=search,
+            active=active,
+            sort=sort,
+            order=order,
+            limit=limit,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_ticker_details(
+        ticker: str,
+        date: Optional[Union[str, datetime, date]] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get detailed information about a specific ticker.
+    """
+    try:
+        results = polygon_client.get_ticker_details(
+            ticker=ticker,
+            date=date,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_ticker_news(
+        ticker: Optional[str] = None,
+        published_utc: Optional[Union[str, datetime, date]] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get recent news articles for a stock ticker.
+    """
+    try:
+        results = polygon_client.list_ticker_news(
+            ticker=ticker,
+            published_utc=published_utc,
+            limit=limit,
+            sort=sort,
+            order=order,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_ticker_types(
+        asset_class: Optional[str] = None,
+        locale: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    List all ticker types supported by Polygon.io.
+    """
+    try:
+        results = polygon_client.get_ticker_types(
+            asset_class=asset_class,
+            locale=locale,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_splits(
+        ticker: Optional[str] = None,
+        execution_date: Optional[Union[str, datetime, date]] = None,
+        reverse_split: Optional[bool] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get historical stock splits.
+    """
+    try:
+        results = polygon_client.list_splits(
+            ticker=ticker,
+            execution_date=execution_date,
+            reverse_split=reverse_split,
+            limit=limit,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_dividends(
+        ticker: Optional[str] = None,
+        ex_dividend_date: Optional[Union[str, datetime, date]] = None,
+        frequency: Optional[int] = None,
+        dividend_type: Optional[str] = None,
+        limit: Optional[int] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get historical cash dividends.
+    """
+    try:
+        results = polygon_client.list_dividends(
+            ticker=ticker,
+            ex_dividend_date=ex_dividend_date,
+            frequency=frequency,
+            dividend_type=dividend_type,
+            limit=limit,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_conditions(
+        asset_class: Optional[str] = None,
+        data_type: Optional[str] = None,
+        id: Optional[int] = None,
+        sip: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    List conditions used by Polygon.io.
+    """
+    try:
+        results = polygon_client.list_conditions(
+            asset_class=asset_class,
+            data_type=data_type,
+            id=id,
+            sip=sip,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def get_exchanges(
+        asset_class: Optional[str] = None,
+        locale: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    List exchanges known by Polygon.io.
+    """
+    try:
+        results = polygon_client.get_exchanges(
+            asset_class=asset_class,
+            locale=locale,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+@poly_mcp.tool()
+async def list_stock_financials(
+        ticker: Optional[str] = None,
+        cik: Optional[str] = None,
+        company_name: Optional[str] = None,
+        company_name_search: Optional[str] = None,
+        sic: Optional[str] = None,
+        filing_date: Optional[Union[str, datetime, date]] = None,
+        filing_date_lt: Optional[Union[str, datetime, date]] = None,
+        filing_date_lte: Optional[Union[str, datetime, date]] = None,
+        filing_date_gt: Optional[Union[str, datetime, date]] = None,
+        filing_date_gte: Optional[Union[str, datetime, date]] = None,
+        period_of_report_date: Optional[Union[str, datetime, date]] = None,
+        period_of_report_date_lt: Optional[Union[str, datetime, date]] = None,
+        period_of_report_date_lte: Optional[Union[str, datetime, date]] = None,
+        period_of_report_date_gt: Optional[Union[str, datetime, date]] = None,
+        period_of_report_date_gte: Optional[Union[str, datetime, date]] = None,
+        timeframe: Optional[str] = None,
+        include_sources: Optional[bool] = None,
+        limit: Optional[int] = None,
+        sort: Optional[str] = None,
+        order: Optional[str] = None,
+        params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+    """
+    Get fundamental financial data for companies.
+    """
+    try:
+        results = polygon_client.list_stock_financials(
+            ticker=ticker,
+            cik=cik,
+            company_name=company_name,
+            company_name_search=company_name_search,
+            sic=sic,
+            filing_date=filing_date,
+            filing_date_lt=filing_date_lt,
+            filing_date_lte=filing_date_lte,
+            filing_date_gt=filing_date_gt,
+            filing_date_gte=filing_date_gte,
+            period_of_report_date=period_of_report_date,
+            period_of_report_date_lt=period_of_report_date_lt,
+            period_of_report_date_lte=period_of_report_date_lte,
+            period_of_report_date_gt=period_of_report_date_gt,
+            period_of_report_date_gte=period_of_report_date_gte,
+            timeframe=timeframe,
+            include_sources=include_sources,
+            limit=limit,
+            sort=sort,
+            order=order,
+            params=params,
+            raw=True
+        )
+        
+        data_str = results.data.decode('utf-8')
+        return json.loads(data_str)
+    except Exception as e:
+        return {"error": str(e)}
+
+def run():
+    """Entry point for the server."""
+    asyncio.run(poly_mcp.run())

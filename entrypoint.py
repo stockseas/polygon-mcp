@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-from mcp_polygon import main
+from mcp_polygon import server
 
 if __name__ == "__main__":
-    main()
+    server.run()
