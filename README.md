@@ -26,24 +26,7 @@ The server implements the following tools:
      - Takes "name" and "content" as required string arguments
      - Updates server state and notifies clients of resource changes
 
-2. Polygon.io Financial Data:
-   - get-aggs: Gets aggregated stock data for a time period
-     - Required parameters:
-       - ticker: Stock ticker symbol (e.g., AAPL)
-       - from_date: Start date in YYYY-MM-DD format
-       - to_date: End date in YYYY-MM-DD format
-     - Optional parameters:
-       - multiplier: Size of the timespan multiplier (default: 1)
-       - timespan: Size of the time window (minute, hour, day, week, month, quarter, year) (default: day)
-       - limit: Number of results to return (default: 10)
-
-   - get-trades: Gets historical trade data for a ticker on a specific date
-     - Required parameters:
-       - ticker: Stock ticker symbol (e.g., AAPL)
-       - date: Date for trades in YYYY-MM-DD format
-     - Optional parameters:
-       - timestamp: Timestamp in Unix milliseconds format (default: 0)
-       - limit: Number of results to return (default: 10)
+2. All of the Polygon API endpoints supported by the python client.
 
 ## Configuration
 
@@ -63,41 +46,9 @@ export POLYGON_API_KEY="your_polygon_api_key_here"
 
 ### Install
 
-#### Claude Desktop
+#### Claude code
 
-On MacOS: `~/Library/Application\ Support/Claude/claude_desktop_config.json`
-On Windows: `%APPDATA%/Claude/claude_desktop_config.json`
-
-<details>
-  <summary>Development/Unpublished Servers Configuration</summary>
-  ```
-  "mcpServers": {
-    "mcp_polygon": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/path/to/mcp_polygon",
-        "run",
-        "mcp_polygon"
-      ]
-    }
-  }
-  ```
-</details>
-
-<details>
-  <summary>Published Servers Configuration</summary>
-  ```
-  "mcpServers": {
-    "mcp_polygon": {
-      "command": "uvx",
-      "args": [
-        "mcp_polygon"
-      ]
-    }
-  }
-  ```
-</details>
+`claude mcp add polygon -e POLYGON_API_KEY=$POLY_API_KEY -- uv run /path/to/mcp_polygon/entrypoint.py`
 
 ## Development
 
