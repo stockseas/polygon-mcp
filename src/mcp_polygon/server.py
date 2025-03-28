@@ -790,6 +790,9 @@ async def list_stock_financials(
     except Exception as e:
         return {"error": str(e)}
 
+# Directly expose the MCP server object
+# It will be run from entrypoint.py
+
 def run():
-    """Entry point for the server."""
-    asyncio.run(poly_mcp.run())
+    """Run the Polygon MCP server."""
+    poly_mcp.run()
