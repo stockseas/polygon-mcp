@@ -1,6 +1,5 @@
 import os
 import json
-import asyncio
 from typing import Optional, Any, Dict, Union, List
 from mcp.server.fastmcp import FastMCP
 from polygon import RESTClient
