@@ -1,93 +1,105 @@
-# mcp_polygon MCP server
+# Polygon.io MCP Server
 
-A MCP server project that provides access to Polygon.io financial market data through the MCP protocol.
+A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that provides access to [Polygon.io](https://polygon.io) financial market data API through an LLM-friendly interface.
 
-## Components
+## Overview
 
-### Resources
+This server exposes all Polygon.io API endpoints as MCP tools, providing access to comprehensive financial market data including:
 
-The server implements a simple note storage system with:
-- Custom note:// URI scheme for accessing individual notes
-- Each note resource has a name, description and text/plain mimetype
+- Stock, options, forex, and crypto aggregates and bars
+- Real-time and historical trades and quotes
+- Market snapshots
+- Ticker details and reference data
+- Dividends and splits data
+- Financial fundamentals
+- Market status and holidays
 
-### Prompts
+## Installation
 
-The server provides a single prompt:
-- summarize-notes: Creates summaries of all stored notes
-  - Optional "style" argument to control detail level (brief/detailed)
-  - Generates prompt combining all current notes with style preference
+### Prerequisites
 
-### Tools
+- Python 3.8+
+- A Polygon.io API key ([Get one here](https://polygon.io))
 
-The server implements the following tools:
+### Direct Installation
 
-1. Note Management:
-   - add-note: Adds a new note to the server
-     - Takes "name" and "content" as required string arguments
-     - Updates server state and notifies clients of resource changes
+```bash
+# Install dependencies
+uv sync
 
-2. All of the Polygon API endpoints supported by the python client.
+# Run the server
+POLYGON_API_KEY=your_api_key_here uv run mcp_polygon
+```
+
+### Integration with Claude
+
+For Claude users, you can add the Polygon MCP server:
+
+```bash
+# Claude CLI
+claude mcp add polygon -e POLYGON_API_KEY=your_api_key_here -- uv run /path/to/mcp_polygon/entrypoint.py
+```
+
+## Usage Examples
+
+Once integrated, you can prompt Claude to access Polygon.io data:
+
+```
+Get the latest price for AAPL stock
+Show me yesterday's trading volume for MSFT
+What were the biggest stock market gainers today?
+Get me the latest crypto market data for BTC-USD
+```
+
+## Available Tools
+
+This MCP server implements all Polygon.io API endpoints as tools, including:
+
+- `get_aggs` - Stock aggregates (OHLC) data for a specific ticker
+- `list_trades` - Historical trade data
+- `get_last_trade` - Latest trade for a symbol
+- `list_ticker_news` - Recent news articles for tickers
+- `get_snapshot_ticker` - Current market snapshot for a ticker
+- `get_market_status` - Current market status and trading hours
+- `list_stock_financials` - Fundamental financial data
+- And many more...
+
+Each tool follows the Polygon.io SDK parameter structure while converting responses to standard JSON that LLMs can easily process.
 
 ## Configuration
 
 ### Environment Variables
 
-The following environment variables must be set for the server to function properly:
-
-- `POLYGON_API_KEY`: Your Polygon.io API key
-
-You can set this environment variable before running the server:
-
-```bash
-export POLYGON_API_KEY="your_polygon_api_key_here"
-```
-
-## Quickstart
-
-### Install
-
-#### Claude code
-
-`claude mcp add polygon -e POLYGON_API_KEY=$POLY_API_KEY -- uv run /path/to/mcp_polygon/entrypoint.py`
+- `POLYGON_API_KEY` (required): Your Polygon.io API key
 
 ## Development
 
 ### Building and Publishing
 
-To prepare the package for distribution:
-
-1. Sync dependencies and update lockfile:
 ```bash
+# Sync dependencies
 uv sync
-```
 
-2. Build package distributions:
-```bash
+# Build package distributions
 uv build
 ```
 
-This will create source and wheel distributions in the `dist/` directory.
-
-3. Publish to PyPI:
-```bash
-uv publish
-```
-
-Note: You'll need to set PyPI credentials via environment variables or command flags:
-- Token: `--token` or `UV_PUBLISH_TOKEN`
-- Or username/password: `--username`/`UV_PUBLISH_USERNAME` and `--password`/`UV_PUBLISH_PASSWORD`
-
 ### Debugging
 
-Since MCP servers run over stdio, debugging can be challenging. For the best debugging
-experience, we strongly recommend using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector).
-
-
-You can launch the MCP Inspector via [`npm`](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) with this command:
+For debugging and testing, we recommend using the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
 
 ```bash
 npx @modelcontextprotocol/inspector uv --directory /path/to/mcp_polygon run mcp_polygon
 ```
 
+This will launch a browser interface where you can interact with your MCP server directly and see input/output for each tool.
 
-Upon launching, the Inspector will display a URL that you can access in your browser to begin debugging.
+## License
+
+[License information]
+
+## Links
+
+- [Polygon.io Documentation](https://polygon.io/docs)
+- [Model Context Protocol](https://modelcontextprotocol.io)
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
