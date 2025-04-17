@@ -33,9 +33,7 @@ This server exposes all Polygon.io API endpoints as MCP tools, providing access 
 ### Prerequisites
 
 - Python 3.8+
-- A Polygon.io API key 
-<br/>
-[![Button]][Link]
+- A Polygon.io API key <br> [![Button]][Link]
 - [Astral UV](https://docs.astral.sh/uv/getting-started/installation/)
   - For existing installs, check that you have a version that supports the `uvx` command.
 
