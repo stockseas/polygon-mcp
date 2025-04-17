@@ -1,3 +1,17 @@
+<a href="https://polygon.io">
+  <div align="center">
+    <picture>
+        <source media="(prefers-color-scheme: light)" srcset="assets/polygon_banner_lightmode.png">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/polygon_banner_darkmode.png">
+        <img alt="Polygon.io logo" src="assets/polygon_banner_lightmode.png" height="100">
+    </picture>
+  </div>
+</a>
+<br>
+
+> [!IMPORTANT]  
+> :test_tube: This project is experimental and could be subject to breaking changes.
+
 # Polygon.io MCP Server
 
 A [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that provides access to [Polygon.io](https://polygon.io) financial market data API through an LLM-friendly interface.
@@ -19,26 +33,55 @@ This server exposes all Polygon.io API endpoints as MCP tools, providing access 
 ### Prerequisites
 
 - Python 3.8+
-- A Polygon.io API key ([Get one here](https://polygon.io))
+- A Polygon.io API key <br> [![Button]][Link]
+- [Astral UV](https://docs.astral.sh/uv/getting-started/installation/)
+  - For existing installs, check that you have a version that supports the `uvx` command.
 
-### Direct Installation
+### Claude Code
 
-```bash
-# Install dependencies
-uv sync
-
-# Run the server
-POLYGON_API_KEY=your_api_key_here uv run mcp_polygon
-```
-
-### Integration with Claude
-
-For Claude users, you can add the Polygon MCP server:
+Use the following command to add the Polygon MCP server to your local environment.
 
 ```bash
 # Claude CLI
 claude mcp add polygon -e POLYGON_API_KEY=your_api_key_here -- uv run /path/to/mcp_polygon/entrypoint.py
 ```
+This command will install the MCP server in your current project.
+If you want to install it globally, you can run the command with `-s <scope>` flag.
+See `claude mcp add --help` for more options.
+
+You can also run `claude mcp add-from-claude-desktop` if the MCP server is installed already for Claude Desktop.
+
+### Claude Desktop
+
+1. Follow the [Claude Desktop MCP installation instructions](https://modelcontextprotocol.io/quickstart/user) to complete the initial installation and find your configuration file.
+1. Use the following example as reference to add Polygon's MCP server. 
+Make sure you complete the various fields.
+    1. Path find your path to `uvx`, run `which uvx` in your terminal.
+    2. Replace `<your_api_key_here>` with your actual Polygon.io API key.
+    3. Replace `<your_home_directory>` with your home directory path, e.g., `/home/username` (Mac/Linux) or `C:\Users\username` (Windows).
+
+<details>
+  <summary>claude_desktop_config.json</summary>
+
+```json
+{
+    "mcpServers": {
+        "polygon": {
+            "command": "<path_to_your_uvx_install>/uvx",
+            "args": [
+                "--from",
+                "git+https://github.com/polygon-io/mcp_polygon@master",
+                "mcp_polygon"
+            ],
+            "env": {
+                "POLYGON_API_KEY": "<your_api_key_here>",
+                "HOME": "<your_home_directory>"
+            }
+        }
+    }
+}
+```
+</details>
 
 ## Usage Examples
 
@@ -66,22 +109,18 @@ This MCP server implements all Polygon.io API endpoints as tools, including:
 
 Each tool follows the Polygon.io SDK parameter structure while converting responses to standard JSON that LLMs can easily process.
 
-## Configuration
-
-### Environment Variables
-
-- `POLYGON_API_KEY` (required): Your Polygon.io API key
-
 ## Development
 
-### Building and Publishing
+### Running Locally
+
+Check to ensure you have the [Prerequisites](#prerequisites) installed.
 
 ```bash
 # Sync dependencies
 uv sync
 
-# Build package distributions
-uv build
+# Run the server
+POLYGON_API_KEY=your_api_key_here uv run mcp_polygon
 ```
 
 ### Debugging
@@ -94,12 +133,18 @@ npx @modelcontextprotocol/inspector uv --directory /path/to/mcp_polygon run mcp_
 
 This will launch a browser interface where you can interact with your MCP server directly and see input/output for each tool.
 
-## License
-
-[License information]
-
 ## Links
-
 - [Polygon.io Documentation](https://polygon.io/docs)
 - [Model Context Protocol](https://modelcontextprotocol.io)
 - [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+
+## Contributing
+If you found a bug or have an idea for a new feature, please first discuss it with us by submitting a new issue. 
+We will respond to issues within at most 3 weeks. 
+We're also open to volunteers if you want to submit a PR for any open issues but please discuss it with us beforehand. 
+PRs that aren't linked to an existing issue or discussed with us ahead of time will generally be declined.
+
+<!----------------------------------------------------------------------------->
+[Link]: https://polygon.io 'Polygon.io Home Page'
+<!---------------------------------[ Buttons ]--------------------------------->
+[Button]: https://img.shields.io/badge/Get_One_For_Free-5F5CFF?style=for-the-badge&logoColor=white
