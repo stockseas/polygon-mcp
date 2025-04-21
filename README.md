@@ -38,6 +38,11 @@ This server exposes all Polygon.io API endpoints as MCP tools, providing access 
   - For existing installs, check that you have a version that supports the `uvx` command.
 
 ### Claude Code
+First, install [Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview)
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
 
 Use the following command to add the Polygon MCP server to your local environment.
 
@@ -48,6 +53,9 @@ claude mcp add polygon -e POLYGON_API_KEY=your_api_key_here -- uv run /path/to/m
 This command will install the MCP server in your current project.
 If you want to install it globally, you can run the command with `-s <scope>` flag.
 See `claude mcp add --help` for more options.
+
+To start Claude Code, run `claude` in your terminal.
+- If this is your first time using, follow the setup prompts to authenticate
 
 You can also run `claude mcp add-from-claude-desktop` if the MCP server is installed already for Claude Desktop.
 
