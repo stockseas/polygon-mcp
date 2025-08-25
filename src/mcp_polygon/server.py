@@ -1,7 +1,7 @@
 import os
 import json
 from typing import Optional, Any, Dict, Union, List, Literal
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from polygon import RESTClient
 from importlib.metadata import version, PackageNotFoundError
 
