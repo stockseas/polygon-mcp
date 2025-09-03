@@ -491,7 +491,18 @@ async def get_market_holidays(
         results = polygon_client.get_market_holidays(params=params, raw=True)
 
         data_str = results.data.decode("utf-8")
-        return json.loads(data_str)
+        data = json.loads(data_str)
+        
+        # The market holidays endpoint returns a list directly, not wrapped in results object
+        # Need to wrap it in the expected MCP format
+        if isinstance(data, list):
+            return {
+                "results": data,
+                "status": "OK",
+                "count": len(data)
+            }
+        
+        return data
     except Exception as e:
         return {"error": str(e)}
 
